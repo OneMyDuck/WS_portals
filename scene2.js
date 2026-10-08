@@ -1,12 +1,21 @@
 'use strict';
-// All positions are fractions of the viewport, so rotation preserves the fight.
+// Actors use normalized world positions; the camera projects them into the viewport.
 const forest={phase:'choose',hero:{x:.5,y:.79,hp:100},mobs:[],target:null,start:0,round:0,events:new Set(),numbers:[],loot:null,upgraded:false};
 const forestControls=document.createElement('div');forestControls.id='forest-controls';document.querySelector('#controls').append(forestControls);
 const mobButtons=['boar','wolf','bear'].map(name=>{const b=document.createElement('button');b.className='portal-key';b.setAttribute('aria-label','Атаковать '+name);b.onclick=()=>selectMob(name);forestControls.append(b);return b});
 const lootButton=document.createElement('button');lootButton.className='portal-key';lootButton.setAttribute('aria-label','UPGRADE — взять меч');lootButton.onclick=takeSword;forestControls.append(lootButton);
 forestControls.hidden=true;
+const camera={x:0,y:0,ready:false};
+function updateCamera(dt){
+ const desiredX=Math.max(-.12,Math.min(.12,forest.hero.x-.5));
+ const desiredY=Math.max(-.16,Math.min(.16,forest.hero.y-(width>height?.75:.62)));
+ const blend=camera.ready?1-Math.exp(-dt*7):1;
+ camera.x+=(desiredX-camera.x)*blend;camera.y+=(desiredY-camera.y)*blend;camera.ready=true;
+}
+function screenPoint(x,y){return {x:(x-camera.x)*width,y:(y-camera.y)*height}}
 function unit(){return Math.min(width,height)}
 function startForest(){
+ camera.ready=false;
  buttons.forEach(b=>b.hidden=true);next.hidden=true;forestControls.hidden=false;
  Object.assign(forest,{phase:'choose',hero:{x:.5,y:.79,hp:100},target:null,start:clock,round:0,events:new Set(),numbers:[],loot:null,upgraded:false});
  forest.mobs=['boar','wolf','bear'].map((name,i)=>({name,x:[.24,.5,.76][i],y:[.43,.53,.4][i],homeX:[.24,.5,.76][i],homeY:[.43,.53,.4][i],hp:100,alive:true,seed:i*2.1,dir:'left',walking:false,deadAt:null}));
@@ -30,7 +39,11 @@ function takeSword(){
  forest.destination={x:forest.loot.x,y:forest.loot.y};
  forest.travel=Math.max(.5,Math.hypot((forest.from.x-forest.loot.x)*width,(forest.from.y-forest.loot.y)*height)/(unit()*.45));hint.textContent='';
 }
-function drawCover(path){const im=images.get(path);const s=Math.max(width/im.width,height/im.height);ctx.drawImage(im,(width-im.width*s)/2,(height-im.height*s)/2,im.width*s,im.height*s)}
+function drawCover(path){
+ const im=images.get(path),worldWidth=width*1.24,worldHeight=height*1.32;
+ const s=Math.max(worldWidth/im.width,worldHeight/im.height);
+ ctx.drawImage(im,(width-im.width*s)/2,(height-im.height*s)/2,im.width*s,im.height*s);
+}
 function sprite(folder,x,y,size,elapsed=clock,fps=12,once=false){
  const frames=SEQUENCES[folder];if(!frames)return;
  const n=once?Math.min(frames.length-1,Math.floor(Math.max(0,elapsed)*fps)):Math.floor(Math.max(0,elapsed)*fps)%frames.length;
@@ -91,7 +104,8 @@ function updateForest(dt){
  f.numbers=f.numbers.filter(n=>clock-n.time<1);
 }
 function forestFrame(dt){
- updateForest(dt);const f=forest,u=unit(),heroScale=u*.16/37;drawCover('assets/scene2/scene2_back.png');
+ updateForest(dt);updateCamera(document.hidden?0:dt);const f=forest,u=unit(),heroScale=u*.16/37;
+ ctx.save();ctx.translate(-camera.x*width,-camera.y*height);drawCover('assets/scene2/scene2_back.png');
  const objects=f.mobs.filter(m=>m.alive||(m.deadAt!==null&&clock-m.deadAt<.75)).map(m=>({y:m.y,m}));objects.push({y:f.hero.y,hero:true});objects.sort((a,b)=>a.y-b.y);
  objects.forEach(o=>{
   if(o.hero){
@@ -128,6 +142,7 @@ function forestFrame(dt){
   for(let i=0;i<18;i++){const angle=i*Math.PI*2/18+clock*.5,r=u*(.10+t*.16);ctx.fillStyle=i%2?'#ffe998':'#d3a1ff';ctx.beginPath();ctx.arc(x+Math.cos(angle)*r,y+Math.sin(angle)*r,2+i%3,0,Math.PI*2);ctx.fill()}ctx.restore();
  }
  f.numbers.forEach(n=>{const age=clock-n.time;ctx.save();ctx.globalAlpha=1-age;ctx.textAlign='center';ctx.font=`900 ${Math.max(18,u*.065)}px system-ui`;ctx.fillStyle=n.color;ctx.strokeStyle='#252025';ctx.lineWidth=4;const y=n.y*height-u*.22-age*u*.10;ctx.strokeText(n.text,n.x*width,y);ctx.fillText(n.text,n.x*width,y);ctx.restore()});
- mobButtons.forEach((b,i)=>{const m=f.mobs[i];b.hidden=!m?.alive;b.disabled=f.phase!=='choose';if(m)Object.assign(b.style,{left:(m.x*width-u*.1)+'px',top:(m.y*height-u*.13)+'px',width:u*.2+'px',height:u*.16+'px'})});
- lootButton.hidden=f.phase!=='loot';lootButton.disabled=f.phase!=='loot';if(f.loot)Object.assign(lootButton.style,{left:(f.loot.x*width-u*.17)+'px',top:(f.loot.y*height-u*.19)+'px',width:u*.34+'px',height:u*.25+'px'});
+ ctx.restore();
+ mobButtons.forEach((b,i)=>{const m=f.mobs[i];b.hidden=!m?.alive;b.disabled=f.phase!=='choose';if(m){const p=screenPoint(m.x,m.y);Object.assign(b.style,{left:(p.x-u*.1)+'px',top:(p.y-u*.13)+'px',width:u*.2+'px',height:u*.16+'px'})}});
+ lootButton.hidden=f.phase!=='loot';lootButton.disabled=f.phase!=='loot';if(f.loot){const p=screenPoint(f.loot.x,f.loot.y);Object.assign(lootButton.style,{left:(p.x-u*.17)+'px',top:(p.y-u*.19)+'px',width:u*.34+'px',height:u*.25+'px'})};
 }
